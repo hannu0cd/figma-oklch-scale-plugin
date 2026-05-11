@@ -296,5 +296,13 @@ async function handleNewColor(): Promise<void> {
 }
 
 async function handleUpdateAll(): Promise<void> {
-  // Task 8
+  const palette = findPaletteFrame();
+  if (!palette) return;
+
+  for (const row of getColorRows(palette)) {
+    recalculateRow(row);
+
+    const nameNode = getNameNode(row);
+    if (nameNode) renameRowVariables(row, nameNode.characters);
+  }
 }
