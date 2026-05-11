@@ -7,7 +7,7 @@
     "moduleResolution": "node",
     "skipLibCheck": true,
     "typeRoots": [
-      "./node_modules/@figma/plugin-typings",
+      "./node_modules/@figma",
       "./node_modules/@types"
     ]
   },
