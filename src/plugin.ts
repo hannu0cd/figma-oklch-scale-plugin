@@ -178,7 +178,9 @@ function recalculateRow(row: FrameNode): void {
   const baseNode = getBaseNode(row);
   if (!baseNode) return;
 
-  const fill = baseNode.fills[0];
+  const fills = baseNode.fills;
+  if (!Array.isArray(fills)) return;
+  const fill = fills[0];
   if (!fill || fill.type !== 'SOLID') return;
 
   const baseRgba: RGBA = { ...fill.color, a: 1 };
