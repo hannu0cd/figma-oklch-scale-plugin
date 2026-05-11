@@ -8,6 +8,7 @@
   },
   "devDependencies": {
     "@figma/plugin-typings": "^1.92.0",
+    "@types/culori": "^2.1.1",
     "esbuild": "^0.21.0",
     "typescript": "^5.4.0",
     "vitest": "^1.6.0"

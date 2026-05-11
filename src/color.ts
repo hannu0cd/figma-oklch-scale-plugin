@@ -33,8 +33,8 @@ export function generatePalette(baseRgba: RGBA): Record<number, RGBA> {
   const lightInterp = interpolate([lightEnd, baseOklch!], 'oklch');
   const darkInterp = interpolate([baseOklch!, darkEnd], 'oklch');
 
-  const lightColors = samples(10).map(t => toRgb(lightInterp(t)));
-  const darkColors = samples(10).map(t => toRgb(darkInterp(t)));
+  const lightColors = samples(10).map((t: number) => toRgb(lightInterp(t)));
+  const darkColors = samples(10).map((t: number) => toRgb(darkInterp(t)));
 
   const result: Record<number, RGBA> = {};
 
