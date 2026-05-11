@@ -2,6 +2,8 @@ import { generatePalette, TONE_STEPS } from './color';
 
 const PALETTE_FRAME_NAME = 'COLOR PALETTE';
 const COLLECTION_NAME = 'Color Palette';
+// oklch(0.6 0.15 250) ≈ a medium blue
+const DEFAULT_BASE: RGBA = { r: 0.11, g: 0.51, b: 0.93, a: 1 };
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -67,6 +69,94 @@ function createHeaderRow(): FrameNode {
   return header;
 }
 
+function generateShortId(existingIds: string[]): string {
+  const chars = 'abcdefghijklmnopqrstuvwxyz0123456789';
+  let id: string;
+  do {
+    id = Array.from({ length: 3 }, () => chars[Math.floor(Math.random() * chars.length)]).join('');
+  } while (existingIds.includes(id));
+  return id;
+}
+
+function getColorRows(palette: FrameNode): FrameNode[] {
+  return palette.children.filter(
+    n => n.type === 'FRAME' && n.getPluginData('role') === 'colorRow'
+  ) as FrameNode[];
+}
+
+function bindFillToVariable(node: RectangleNode, variable: Variable): void {
+  node.fills = [{
+    type: 'SOLID',
+    color: { r: 0, g: 0, b: 0 },
+    boundVariables: { color: figma.variables.createVariableAlias(variable) },
+  }];
+}
+
+function createColorRow(colorId: string, colorName: string, baseRgba: RGBA): FrameNode {
+  const collection = findOrCreateCollection();
+  const palette_ = generatePalette(baseRgba);
+
+  // Create 19 variables
+  const variables: Variable[] = TONE_STEPS.map(step => {
+    const v = figma.variables.createVariable(`${colorName}/${step}`, collection.id, 'COLOR');
+    v.setValueForMode(collection.defaultModeId, palette_[step]);
+    return v;
+  });
+
+  const row = figma.createFrame();
+  row.name = colorName;
+  row.layoutMode = 'HORIZONTAL';
+  row.itemSpacing = 0;
+  row.counterAxisSizingMode = 'AUTO';
+  row.primaryAxisSizingMode = 'AUTO';
+  row.fills = [];
+
+  // Name text
+  const nameText = figma.createText();
+  nameText.characters = colorName;
+  nameText.resize(180, 60);
+  nameText.setPluginData('role', 'name');
+
+  // Base swatch (plain fill — user-editable input)
+  const baseSwatch = figma.createRectangle();
+  baseSwatch.resize(60, 60);
+  baseSwatch.cornerRadius = 6;
+  baseSwatch.fills = [{ type: 'SOLID', color: { r: baseRgba.r, g: baseRgba.g, b: baseRgba.b } }];
+  baseSwatch.setPluginData('role', 'base');
+
+  // Tones frame
+  const tonesFrame = figma.createFrame();
+  tonesFrame.name = 'tones';
+  tonesFrame.layoutMode = 'HORIZONTAL';
+  tonesFrame.itemSpacing = 0;
+  tonesFrame.cornerRadius = 6;
+  tonesFrame.clipsContent = true;
+  tonesFrame.counterAxisSizingMode = 'AUTO';
+  tonesFrame.primaryAxisSizingMode = 'AUTO';
+  tonesFrame.fills = [];
+
+  // 19 tone rects, each bound to its variable
+  TONE_STEPS.forEach((step, i) => {
+    const rect = figma.createRectangle();
+    rect.resize(60, 60);
+    rect.cornerRadius = 0;
+    rect.name = String(step);
+    bindFillToVariable(rect, variables[i]);
+    tonesFrame.appendChild(rect);
+  });
+
+  row.appendChild(nameText);
+  row.appendChild(baseSwatch);
+  row.appendChild(tonesFrame);
+
+  // Store metadata on the row
+  row.setPluginData('role', 'colorRow');
+  row.setPluginData('colorId', colorId);
+  row.setPluginData('variableIds', JSON.stringify(variables.map(v => v.id)));
+
+  return row;
+}
+
 // ── Entry point ───────────────────────────────────────────────────────────────
 
 figma.showUI(__html__, { width: 220, height: 130 });
@@ -102,7 +192,17 @@ async function handleNewPalette(): Promise<void> {
 }
 
 async function handleNewColor(): Promise<void> {
-  // Task 6
+  const palette = findPaletteFrame();
+  if (!palette) return;
+
+  await loadFonts();
+
+  const existingIds = getColorRows(palette).map(r => r.getPluginData('colorId'));
+  const colorId = generateShortId(existingIds);
+  const colorName = `color-${colorId}`;
+
+  const row = createColorRow(colorId, colorName, DEFAULT_BASE);
+  palette.appendChild(row);
 }
 
 async function handleUpdateAll(): Promise<void> {
