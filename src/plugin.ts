@@ -215,25 +215,22 @@ figma.on('documentchange', (event) => {
 
   for (const change of event.documentChanges) {
     if (change.type !== 'PROPERTY_CHANGE') continue;
+    if (change.node.removed) continue;
 
-    const node = change.node as SceneNode & { getPluginData?: (key: string) => string };
-    if (!node.getPluginData) continue;
-
+    const node = change.node as SceneNode;
     const role = node.getPluginData('role');
 
-    if (role === 'base' && (change as any).properties.includes('fills')) {
-      // Find parent color row
-      const row = (node as SceneNode).parent as FrameNode;
+    if (role === 'base' && change.properties.includes('fills')) {
+      const row = node.parent as FrameNode;
       if (row?.getPluginData('role') === 'colorRow') {
         pendingRows.add(row.getPluginData('colorId'));
       }
     }
 
-    if (role === 'name' && (change as any).properties.includes('characters')) {
-      const row = (node as SceneNode).parent as FrameNode;
+    if (role === 'name' && change.properties.includes('characters')) {
+      const row = node.parent as FrameNode;
       if (row?.getPluginData('role') === 'colorRow') {
-        const nameNode = node as TextNode;
-        renameRowVariables(row, nameNode.characters);
+        renameRowVariables(row, (node as TextNode).characters);
       }
     }
   }
