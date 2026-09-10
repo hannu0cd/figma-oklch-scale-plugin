@@ -1,4 +1,4 @@
-# Figma Color Palette
+# Figma OKLCH Scale Plugin
 
 A Figma plugin that builds OKLCH-based 19-step color palettes on the canvas and keeps them in sync with Figma color variables.
 

@@ -1,5 +1,5 @@
 {
-  "name": "figma-color-palette",
+  "name": "figma-oklch-scale-plugin",
   "version": "1.0.0",
   "scripts": {
     "build": "node esbuild.config.js",
