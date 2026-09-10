@@ -3,7 +3,7 @@
 ## Project
 A standalone Figma plugin that creates and manages OKLCH-based 19-step color palettes on the Figma canvas, backed by Figma color variables.
 
-## Key docs
+## Key docs (local only, not committed)
 - @docs/superpowers/specs/2026-05-11-figma-color-palette-plugin-design.md — approved design spec
 - @docs/superpowers/plans/2026-05-11-figma-color-palette-plugin.md — implementation plan (start here)
 

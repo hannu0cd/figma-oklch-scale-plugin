@@ -55,7 +55,6 @@ npm test           # Vitest unit tests for the palette math
 | `src/plugin.ts` | Main thread: canvas nodes, variables, change listener |
 | `src/ui.ts`, `src/ui.html` | Plugin window with the three action buttons |
 | `esbuild.config.js` | Bundles the main thread and inlines the UI script into `dist/ui.html` |
-| `docs/superpowers/` | Design spec and implementation plan |
 
 ## Tech stack
 
