@@ -2,6 +2,7 @@ import { generatePalette, TONE_STEPS } from './color';
 
 const PALETTE_FRAME_NAME = 'COLOR PALETTE';
 const COLLECTION_NAME = 'Color Palette';
+const DEBOUNCE_MS = 300;
 // oklch(0.6 0.15 250) ≈ a medium blue
 const DEFAULT_BASE: RGBA = { r: 0.11, g: 0.51, b: 0.93, a: 1 };
 
@@ -16,15 +17,24 @@ function findPaletteFrame(): FrameNode | null {
   return null;
 }
 
-function findOrCreateCollection(): VariableCollection {
-  const existing = figma.variables.getLocalVariableCollections()
-    .find(c => c.name === COLLECTION_NAME);
+async function findOrCreateCollection(): Promise<VariableCollection> {
+  const collections = await figma.variables.getLocalVariableCollectionsAsync();
+  const existing = collections.find(c => c.name === COLLECTION_NAME);
   if (existing) return existing;
   return figma.variables.createVariableCollection(COLLECTION_NAME);
 }
 
+let lastHasPalette: boolean | null = null;
+
 function sendInitState(): void {
-  figma.ui.postMessage({ type: 'init-state', hasPalette: findPaletteFrame() !== null });
+  lastHasPalette = findPaletteFrame() !== null;
+  figma.ui.postMessage({ type: 'init-state', hasPalette: lastHasPalette });
+}
+
+function reportError(context: string, err: unknown): void {
+  const message = err instanceof Error ? err.message : String(err);
+  console.error(`[Color Palette] ${context}:`, err);
+  figma.notify(`${context}: ${message}`, { error: true });
 }
 
 async function loadFonts(): Promise<void> {
@@ -84,6 +94,10 @@ function getColorRows(palette: FrameNode): FrameNode[] {
   ) as FrameNode[];
 }
 
+function findRowByColorId(palette: FrameNode, colorId: string): FrameNode | undefined {
+  return getColorRows(palette).find(r => r.getPluginData('colorId') === colorId);
+}
+
 function bindFillToVariable(node: RectangleNode, variable: Variable): void {
   node.fills = [{
     type: 'SOLID',
@@ -92,14 +106,14 @@ function bindFillToVariable(node: RectangleNode, variable: Variable): void {
   }];
 }
 
-function createColorRow(colorId: string, colorName: string, baseRgba: RGBA): FrameNode {
-  const collection = findOrCreateCollection();
-  const palette_ = generatePalette(baseRgba);
+async function createColorRow(colorId: string, colorName: string, baseRgba: RGBA): Promise<FrameNode> {
+  const collection = await findOrCreateCollection();
+  const tones = generatePalette(baseRgba);
 
   // Create 19 variables
   const variables: Variable[] = TONE_STEPS.map(step => {
-    const v = figma.variables.createVariable(`${colorName}/${step}`, collection.id, 'COLOR');
-    v.setValueForMode(collection.defaultModeId, palette_[step]);
+    const v = figma.variables.createVariable(`${colorName}/${step}`, collection, 'COLOR');
+    v.setValueForMode(collection.defaultModeId, tones[step]);
     return v;
   });
 
@@ -169,12 +183,13 @@ function getNameNode(row: FrameNode): TextNode | null {
   ) as TextNode) ?? null;
 }
 
-function getStoredVariables(row: FrameNode): Variable[] {
+async function getStoredVariables(row: FrameNode): Promise<Variable[]> {
   const ids: string[] = JSON.parse(row.getPluginData('variableIds') || '[]');
-  return ids.map(id => figma.variables.getVariableById(id)).filter(Boolean) as Variable[];
+  const variables = await Promise.all(ids.map(id => figma.variables.getVariableByIdAsync(id)));
+  return variables.filter((v): v is Variable => v !== null);
 }
 
-function recalculateRow(row: FrameNode): void {
+async function recalculateRow(row: FrameNode): Promise<void> {
   const baseNode = getBaseNode(row);
   if (!baseNode) return;
 
@@ -184,21 +199,49 @@ function recalculateRow(row: FrameNode): void {
   if (!fill || fill.type !== 'SOLID') return;
 
   const baseRgba: RGBA = { ...fill.color, a: 1 };
-  const palette = generatePalette(baseRgba);
-  const variables = getStoredVariables(row);
-  const collection = findOrCreateCollection();
+  const tones = generatePalette(baseRgba);
+  const variables = await getStoredVariables(row);
+  const collection = await findOrCreateCollection();
 
   TONE_STEPS.forEach((step, i) => {
-    variables[i]?.setValueForMode(collection.defaultModeId, palette[step]);
+    variables[i]?.setValueForMode(collection.defaultModeId, tones[step]);
   });
 }
 
-function renameRowVariables(row: FrameNode, newName: string): void {
-  const variables = getStoredVariables(row);
+/**
+ * Renames the row's 19 variables to `{newName}/{step}`.
+ * Figma throws on empty, malformed, or duplicate variable names, so the name
+ * is validated against the collection first to avoid a partial rename.
+ */
+async function renameRowVariables(row: FrameNode, newName: string): Promise<void> {
+  const name = newName.trim();
+  if (!name) {
+    figma.notify('Color name cannot be empty', { error: true });
+    return;
+  }
+
+  const variables = await getStoredVariables(row);
+  if (variables.length === 0) return;
+
+  const ownIds = new Set(variables.map(v => v.id));
+  const collection = await findOrCreateCollection();
+  const allColorVariables = await figma.variables.getLocalVariablesAsync('COLOR');
+  const takenNames = new Set(
+    allColorVariables
+      .filter(v => v.variableCollectionId === collection.id && !ownIds.has(v.id))
+      .map(v => v.name)
+  );
+
+  const clash = TONE_STEPS.find(step => takenNames.has(`${name}/${step}`));
+  if (clash !== undefined) {
+    figma.notify(`A color named "${name}" already exists in the palette`, { error: true });
+    return;
+  }
+
   TONE_STEPS.forEach((step, i) => {
-    if (variables[i]) variables[i].name = `${newName}/${step}`;
+    if (variables[i]) variables[i].name = `${name}/${step}`;
   });
-  row.name = newName;
+  row.name = name;
 }
 
 // ── Entry point ───────────────────────────────────────────────────────────────
@@ -207,10 +250,38 @@ figma.showUI(__html__, { width: 220, height: 130 });
 sendInitState();
 
 let debounceTimer: ReturnType<typeof setTimeout> | null = null;
-const pendingRows = new Set<string>(); // colorIds awaiting recalculation
+const pendingRecalc = new Set<string>(); // colorIds whose base color changed
+const pendingRename = new Set<string>(); // colorIds whose name text changed
+
+async function flushPendingChanges(): Promise<void> {
+  const palette = findPaletteFrame();
+  if (!palette) {
+    pendingRecalc.clear();
+    pendingRename.clear();
+    return;
+  }
+
+  const recalcIds = [...pendingRecalc];
+  const renameIds = [...pendingRename];
+  pendingRecalc.clear();
+  pendingRename.clear();
+
+  for (const colorId of recalcIds) {
+    const row = findRowByColorId(palette, colorId);
+    if (row) await recalculateRow(row);
+  }
+
+  for (const colorId of renameIds) {
+    const row = findRowByColorId(palette, colorId);
+    const nameNode = row && getNameNode(row);
+    if (row && nameNode) await renameRowVariables(row, nameNode.characters);
+  }
+}
 
 figma.on('documentchange', (event) => {
   const palette = findPaletteFrame();
+  const hasPalette = palette !== null;
+  if (hasPalette !== lastHasPalette) sendInitState();
   if (!palette) return;
 
   for (const change of event.documentChanges) {
@@ -219,42 +290,33 @@ figma.on('documentchange', (event) => {
 
     const node = change.node as SceneNode;
     const role = node.getPluginData('role');
+    if (role !== 'base' && role !== 'name') continue;
 
-    if (role === 'base' && change.properties.includes('fills')) {
-      const row = node.parent as FrameNode;
-      if (row?.getPluginData('role') === 'colorRow') {
-        pendingRows.add(row.getPluginData('colorId'));
-      }
-    }
+    const row = node.parent as FrameNode | null;
+    if (row?.getPluginData('role') !== 'colorRow') continue;
+    const colorId = row.getPluginData('colorId');
 
-    if (role === 'name' && change.properties.includes('characters')) {
-      const row = node.parent as FrameNode;
-      if (row?.getPluginData('role') === 'colorRow') {
-        renameRowVariables(row, (node as TextNode).characters);
-      }
-    }
+    if (role === 'base' && change.properties.includes('fills')) pendingRecalc.add(colorId);
+    if (role === 'name' && change.properties.includes('characters')) pendingRename.add(colorId);
   }
 
-  if (pendingRows.size === 0) return;
+  if (pendingRecalc.size === 0 && pendingRename.size === 0) return;
 
   if (debounceTimer) clearTimeout(debounceTimer);
   debounceTimer = setTimeout(() => {
-    const palette = findPaletteFrame();
-    if (!palette) return;
-
-    for (const colorId of pendingRows) {
-      const row = getColorRows(palette).find(r => r.getPluginData('colorId') === colorId);
-      if (row) recalculateRow(row);
-    }
-    pendingRows.clear();
     debounceTimer = null;
-  }, 300);
+    flushPendingChanges().catch(err => reportError('Failed to sync palette', err));
+  }, DEBOUNCE_MS);
 });
 
 figma.ui.onmessage = async (msg: { type: string }) => {
-  if (msg.type === 'new-palette') await handleNewPalette();
-  if (msg.type === 'new-color') await handleNewColor();
-  if (msg.type === 'update-all') await handleUpdateAll();
+  try {
+    if (msg.type === 'new-palette') await handleNewPalette();
+    if (msg.type === 'new-color') await handleNewColor();
+    if (msg.type === 'update-all') await handleUpdateAll();
+  } catch (err) {
+    reportError('Color Palette error', err);
+  }
 };
 
 async function handleNewPalette(): Promise<void> {
@@ -274,7 +336,7 @@ async function handleNewPalette(): Promise<void> {
   figma.currentPage.appendChild(palette);
   palette.appendChild(createHeaderRow());
 
-  findOrCreateCollection(); // ensure collection exists
+  await findOrCreateCollection(); // ensure collection exists
 
   figma.viewport.scrollAndZoomIntoView([palette]);
   sendInitState();
@@ -290,7 +352,7 @@ async function handleNewColor(): Promise<void> {
   const colorId = generateShortId(existingIds);
   const colorName = `color-${colorId}`;
 
-  const row = createColorRow(colorId, colorName, DEFAULT_BASE);
+  const row = await createColorRow(colorId, colorName, DEFAULT_BASE);
   palette.appendChild(row);
 }
 
@@ -299,9 +361,10 @@ async function handleUpdateAll(): Promise<void> {
   if (!palette) return;
 
   for (const row of getColorRows(palette)) {
-    recalculateRow(row);
+    await recalculateRow(row);
 
     const nameNode = getNameNode(row);
-    if (nameNode) renameRowVariables(row, nameNode.characters);
+    if (nameNode) await renameRowVariables(row, nameNode.characters);
   }
+  figma.notify('Palette updated');
 }

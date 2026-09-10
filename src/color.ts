@@ -5,6 +5,7 @@ type RGBA = { r: number; g: number; b: number; a: number };
 const L_LIGHT = 0.98;
 const L_DARK = 0.10;
 
+/** The 19 tone steps of a palette, lightest (50) to darkest (950). */
 export const TONE_STEPS = [50, 100, 150, 200, 250, 300, 350, 400, 450, 500, 550, 600, 650, 700, 750, 800, 850, 900, 950] as const;
 
 const toOklch = converter('oklch');
@@ -23,6 +24,16 @@ function toFigmaRgba(color: ReturnType<typeof toRgb>): RGBA {
   };
 }
 
+/**
+ * Generates a 19-step tonal palette from a base color.
+ *
+ * The base is converted to OKLCH, then interpolated toward a near-white
+ * anchor (steps 50–450) and a near-black anchor (steps 550–950), both with
+ * zero chroma and the base hue. Step 500 is the base color exactly.
+ *
+ * @param baseRgba Base color in Figma RGBA format (channels 0–1).
+ * @returns Map of tone step to RGBA, all channels clamped to [0, 1] and alpha 1.
+ */
 export function generatePalette(baseRgba: RGBA): Record<number, RGBA> {
   const baseOklch = toOklch({ mode: 'rgb', r: baseRgba.r, g: baseRgba.g, b: baseRgba.b });
   const h = baseOklch?.h ?? 0;

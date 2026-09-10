@@ -1,7 +1,8 @@
-type RGBA = { r: number; g: number; b: number; a: number };
-
 import { describe, it, expect } from 'vitest';
 import { generatePalette, TONE_STEPS } from './color';
+
+// Shim for Figma's global RGBA type so the tests compile outside the plugin sandbox.
+type RGBA = { r: number; g: number; b: number; a: number };
 
 const MID_BLUE: RGBA = { r: 0.114, g: 0.514, b: 0.929, a: 1 };
 
